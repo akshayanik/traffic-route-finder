@@ -2,6 +2,7 @@ import sys
 sys.stdout.reconfigure(encoding="utf-8")
 import os
 import requests
+import polyline
 from dotenv import load_dotenv
 
 # Load the API key from the .env file
@@ -15,8 +16,11 @@ def get_routes(origin, destination):
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": API_KEY,
-        # Only ask Google for the fields we need
-        "X-Goog-FieldMask": "routes.description,routes.distanceMeters,routes.duration,routes.staticDuration",
+        # Only ask Google for the fields we need (now including the route shape)
+        "X-Goog-FieldMask": (
+            "routes.description,routes.distanceMeters,routes.duration,"
+            "routes.staticDuration,routes.polyline.encodedPolyline"
+        ),
     }
     body = {
         "origin": {"address": origin},
@@ -58,6 +62,10 @@ def analyze_routes(routes):
         delay = max(with_traffic - without_traffic, 0)
         congestion = delay / without_traffic * 100 if without_traffic > 0 else 0
 
+        # Decode the route shape into [longitude, latitude] points for the map
+        encoded = route.get("polyline", {}).get("encodedPolyline", "")
+        path = [[lng, lat] for lat, lng in polyline.decode(encoded)] if encoded else []
+
         results.append({
             "name": route.get("description", "unnamed road"),
             "km": route["distanceMeters"] / 1000,
@@ -65,33 +73,39 @@ def analyze_routes(routes):
             "delay": delay,
             "congestion": congestion,
             "label": congestion_label(congestion),
+            "path": path,
         })
     return results
 
 
-origin = "Andheri, Mumbai"
-destination = "Gateway of India, Mumbai"
+def format_time(minutes):
+    # Turns 883 into "14 h 43 min"
+    total = round(minutes)
+    hours, mins = divmod(total, 60)
+    if hours == 0:
+        return f"{mins} min"
+    return f"{hours} h {mins} min"
 
-results = analyze_routes(get_routes(origin, destination))
 
-if not results:
-    print("No routes found.")
-else:
-    ranked = sorted(results, key=lambda r: r["congestion"])
+def rank_routes(results):
+    # Least time stuck in traffic first; if tied, the faster route wins
+    return sorted(results, key=lambda r: (round(r["delay"]), r["with_traffic"]))
 
-    print("Routes ranked by least traffic:\n")
-    for rank, r in enumerate(ranked, start=1):
-        print(f"{rank}. via {r['name']} ({r['km']:.1f} km)")
-        print(f"   {r['with_traffic']:.0f} min right now, {r['delay']:.0f} min of that is traffic")
-        print(f"   Congestion: {r['congestion']:.0f}% ({r['label']})")
-        print()
 
-    fastest = min(results, key=lambda r: r["with_traffic"])
-    calmest = ranked[0]
+if __name__ == "__main__":
+    origin = "Andheri, Mumbai"
+    destination = "Gateway of India, Mumbai"
 
-    print(f"Fastest route: via {fastest['name']} ({fastest['with_traffic']:.0f} min)")
-    print(f"Calmest route: via {calmest['name']} ({calmest['congestion']:.0f}% congestion)")
+    results = analyze_routes(get_routes(origin, destination))
 
-    if calmest is not fastest:
-        extra = calmest["with_traffic"] - fastest["with_traffic"]
-        print(f"Taking the calmest route costs you about {extra:.0f} extra minutes.")
+    if not results:
+        print("No routes found.")
+    else:
+        ranked = rank_routes(results)
+
+        print("Routes ranked by least traffic:\n")
+        for rank, r in enumerate(ranked, start=1):
+            print(f"{rank}. via {r['name']} ({r['km']:.1f} km)")
+            print(f"   {format_time(r['with_traffic'])} right now, {format_time(r['delay'])} of that is traffic")
+            print(f"   Congestion: {r['congestion']:.0f}% ({r['label']})")
+            print()
