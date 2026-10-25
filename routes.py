@@ -91,6 +91,38 @@ def rank_routes(results):
     # Least time stuck in traffic first; if tied, the faster route wins
     return sorted(results, key=lambda r: (round(r["delay"]), r["with_traffic"]))
 
+AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
+
+
+def suggest_places(text):
+    # Called while the user types; returns a list of matching place names
+    if not text or len(text) < 3:
+        return []
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": API_KEY,
+    }
+    body = {
+        "input": text,
+        "includedRegionCodes": ["in"],  # only suggest places in India
+        "languageCode": "en",
+    }
+    try:
+        response = requests.post(AUTOCOMPLETE_URL, json=body, headers=headers, timeout=10)
+    except requests.exceptions.RequestException:
+        return []
+
+    if response.status_code != 200:
+        print("Autocomplete error:", response.text)
+        return []
+
+    suggestions = response.json().get("suggestions", [])
+    return [
+        s["placePrediction"]["text"]["text"]
+        for s in suggestions
+        if "placePrediction" in s
+    ]
 
 if __name__ == "__main__":
     origin = "Andheri, Mumbai"

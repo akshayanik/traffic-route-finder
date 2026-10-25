@@ -1,7 +1,8 @@
 import math
 import pydeck as pdk
 import streamlit as st
-from routes import get_routes, analyze_routes, rank_routes, format_time
+from streamlit_searchbox import st_searchbox
+from routes import get_routes, analyze_routes, rank_routes, format_time, suggest_places
 
 # One colour per route, matching the pink theme: hot pink, lavender, peach
 ROUTE_COLORS = [[236, 72, 153], [168, 85, 247], [251, 146, 60]]
@@ -56,8 +57,20 @@ def show_map(ranked):
     ))
 
 
-origin = st.text_input("Starting point", placeholder="e.g. Andheri, Mumbai")
-destination = st.text_input("Destination", placeholder="e.g. Gateway of India, Mumbai")
+origin = st_searchbox(
+    suggest_places,
+    label="Starting point",
+    placeholder="Start typing a place...",
+    key="origin",
+    debounce=400,
+)
+destination = st_searchbox(
+    suggest_places,
+    label="Destination",
+    placeholder="Start typing a place...",
+    key="destination",
+    debounce=400,
+)
 
 if st.button("Find routes", type="primary"):
     if not origin or not destination:
